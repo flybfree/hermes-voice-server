@@ -1,0 +1,14 @@
+# Custom voices for the Hermes TTS server.
+# Edit via web/voice-editor.html (scripts/voice_admin.py), or by hand and then
+# `python scripts/build_voices.py`.
+voices:
+  hanako:
+    blend: af_kore(3)+jf_nezumi(50)+jf_gongitsune(47)
+    description: American English, strong Japanese accent (female) -- tuned by ear
+      from af_kore + a jf_nezumi/jf_gongitsune blend
+  joan:
+    blend: bf_lily
+    description: Plain British English, no blending (female)
+  jarvis:
+    blend: bm_george(60)+bm_lewis(40)
+    description: British English, George/Lewis blend (male)

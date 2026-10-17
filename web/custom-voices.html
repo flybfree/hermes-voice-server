@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Custom Voices</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 48rem; margin: 2rem auto; padding: 0 1rem; color: #222; }
+  h1 { margin-bottom: 0.25rem; }
+  p.sub { color: #666; margin-top: 0; }
+  textarea { width: 100%; box-sizing: border-box; font-size: 1rem; padding: 0.5rem; }
+  .voice { border: 1px solid #ddd; border-radius: 8px; padding: 1rem; margin: 1rem 0; }
+  .voice h2 { margin: 0 0 0.25rem 0; font-size: 1.1rem; }
+  .voice .desc { color: #555; margin: 0 0 0.75rem 0; }
+  .voice .blend { color: #888; font-family: monospace; font-size: 0.85rem; }
+  button { font-size: 1rem; padding: 0.4rem 1rem; cursor: pointer; }
+  button:disabled { opacity: 0.6; cursor: wait; }
+  audio { display: block; margin-top: 0.5rem; width: 100%; }
+  .status { font-size: 0.85rem; color: #a00; margin-top: 0.4rem; }
+  a.back { font-size: 0.9rem; }
+</style>
+</head>
+<body>
+  <h1>Custom Voices</h1>
+  <p class="sub">Permanent, named voices baked into this server (from voices.yaml). Each is usable directly as the <code>voice</code> field by any OpenAI-compatible client. <a class="back" href="/web/">&larr; full voice mixer</a> &middot; <a class="back" href="http://localhost:8765/">edit blends &rarr;</a></p>
+
+  <label for="sample-text"><strong>Sample text</strong></label>
+  <textarea id="sample-text" rows="2">Hello, this is a test of this voice.</textarea>
+
+  <div id="voices">
+    <div class="voice">
+      <h2>hanako</h2>
+      <p class="desc">American English, strong Japanese accent (female) -- tuned by ear from af_kore + a jf_nezumi/jf_gongitsune blend</p>
+      <p class="blend">af_kore(3)+jf_nezumi(50)+jf_gongitsune(47)</p>
+      <button onclick="playVoice('hanako', this)">Play sample</button>
+      <audio id="audio-hanako" controls hidden></audio>
+      <div class="status" id="status-hanako"></div>
+    </div>
+    <div class="voice">
+      <h2>joan</h2>
+      <p class="desc">Plain British English, no blending (female)</p>
+      <p class="blend">bf_lily</p>
+      <button onclick="playVoice('joan', this)">Play sample</button>
+      <audio id="audio-joan" controls hidden></audio>
+      <div class="status" id="status-joan"></div>
+    </div>
+    <div class="voice">
+      <h2>jarvis</h2>
+      <p class="desc">British English, George/Lewis blend (male)</p>
+      <p class="blend">bm_george(60)+bm_lewis(40)</p>
+      <button onclick="playVoice('jarvis', this)">Play sample</button>
+      <audio id="audio-jarvis" controls hidden></audio>
+      <div class="status" id="status-jarvis"></div>
+    </div>
+
+  </div>
+
+  <script>
+    async function playVoice(name, btn) {
+      const text = document.getElementById('sample-text').value;
+      const audioEl = document.getElementById('audio-' + name);
+      const statusEl = document.getElementById('status-' + name);
+      statusEl.textContent = '';
+      btn.disabled = true;
+      btn.textContent = 'Generating...';
+      try {
+        const resp = await fetch('/v1/audio/speech', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ model: 'kokoro', voice: name, input: text, response_format: 'mp3' })
+        });
+        if (!resp.ok) {
+          const errText = await resp.text();
+          throw new Error('HTTP ' + resp.status + ': ' + errText);
+        }
+        const blob = await resp.blob();
+        audioEl.src = URL.createObjectURL(blob);
+        audioEl.hidden = false;
+        audioEl.play();
+      } catch (err) {
+        statusEl.textContent = String(err);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Play sample';
+      }
+    }
+  </script>
+</body>
+</html>

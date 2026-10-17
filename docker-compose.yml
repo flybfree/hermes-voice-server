@@ -1,0 +1,28 @@
+name: hermes-voice-server
+services:
+  voice-server:
+    image: ghcr.io/remsky/kokoro-fastapi-cpu:latest
+    restart: unless-stopped
+    ports:
+      - "8880:8880"
+    environment:
+      - ALLOW_LOCAL_VOICE_SAVING=true
+      - ENABLE_WEB_PLAYER=true
+      - DEFAULT_VOICE=af_heart
+      # Narrow this if the VM's port 8880 is reachable beyond your own network.
+      - CORS_ORIGINS=["*"]
+    env_file:
+      - path: .env
+        required: false
+    volumes:
+      # Standalone "Custom Voices" test page (see web/custom-voices.html).
+      - ./web/custom-voices.html:/app/web/custom-voices.html
+      # Alias table: maps clean names (voice: "hanako") to the correctly
+      # language-prefixed files below. Edit + `docker compose restart
+      # voice-server` to apply -- no rebuild needed.
+      - ./openai_mappings.json:/app/api/src/core/openai_mappings.json
+      # One line per custom voicepack from voices.yaml. Add a line here
+      # whenever scripts/build_voices.py reports a new voices/<file>.pt.
+      - ./voices/a_hanako.pt:/app/api/src/voices/v1_0/a_hanako.pt
+      - ./voices/b_joan.pt:/app/api/src/voices/v1_0/b_joan.pt
+      - ./voices/b_jarvis.pt:/app/api/src/voices/v1_0/b_jarvis.pt

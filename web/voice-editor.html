@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Voice Editor</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 52rem; margin: 2rem auto; padding: 0 1rem; color: #222; }
+  h1 { margin-bottom: 0.25rem; }
+  p.sub { color: #666; margin-top: 0; }
+  .voice { border: 1px solid #ddd; border-radius: 8px; padding: 1rem; margin: 1rem 0; }
+  .voice-header { display: flex; justify-content: space-between; align-items: baseline; }
+  .voice-header h2 { margin: 0; }
+  .voice-header .internal { color: #999; font-family: monospace; font-size: 0.8rem; }
+  input[type=text] { font-size: 0.95rem; padding: 0.3rem; box-sizing: border-box; }
+  .description { width: 100%; margin: 0.5rem 0; }
+  .component-row { display: flex; gap: 0.5rem; align-items: center; margin: 0.4rem 0; }
+  .component-row input[list] { flex: 1; }
+  .component-row input.weight { width: 5rem; }
+  .component-row button.remove { color: #a00; border: none; background: none; cursor: pointer; font-size: 1.1rem; }
+  .add-component { font-size: 0.85rem; margin: 0.4rem 0 0.8rem 0; }
+  .blend-preview { font-family: monospace; font-size: 0.85rem; color: #666; margin: 0.5rem 0; }
+  .actions { display: flex; gap: 0.5rem; align-items: center; margin-top: 0.6rem; }
+  button { font-size: 0.95rem; padding: 0.4rem 0.9rem; cursor: pointer; }
+  button:disabled { opacity: 0.6; cursor: wait; }
+  audio { width: 100%; margin-top: 0.5rem; }
+  .status { font-size: 0.85rem; margin-top: 0.4rem; }
+  .status.error { color: #a00; }
+  .status.ok { color: #080; }
+  textarea#sample-text { width: 100%; box-sizing: border-box; font-size: 0.95rem; padding: 0.4rem; }
+  a.back { font-size: 0.9rem; }
+</style>
+</head>
+<body>
+  <h1>Voice Editor</h1>
+  <p class="sub">Edit the blend behind each custom voice, preview it live against the running server, and save to apply permanently (writes voices.yaml + the voicepack + the alias table, then restarts the server). <a class="back" href="http://localhost:8880/web/custom-voices.html">&larr; Custom Voices page</a></p>
+
+  <label for="sample-text"><strong>Sample text</strong></label>
+  <textarea id="sample-text" rows="2">Hello, this is a test of this voice.</textarea>
+
+  <div id="voices">Loading...</div>
+
+  <datalist id="voice-catalog"></datalist>
+
+  <script>
+    let catalog = [];
+
+    async function loadCatalog() {
+      const resp = await fetch('/api/catalog');
+      const data = await resp.json();
+      catalog = data.voices || [];
+      const list = document.getElementById('voice-catalog');
+      list.innerHTML = catalog.map(v => `<option value="${v}">`).join('');
+    }
+
+    function componentRow(component) {
+      const row = document.createElement('div');
+      row.className = 'component-row';
+      row.innerHTML = `
+        <input type="text" list="voice-catalog" class="voice-id" value="${component.voice || ''}" placeholder="e.g. af_heart">
+        <input type="text" class="weight" value="${component.weight ?? ''}" placeholder="weight">
+        <button type="button" class="remove" title="Remove">&times;</button>
+      `;
+      row.querySelector('.remove').onclick = () => row.remove();
+      return row;
+    }
+
+    function blendFromCard(card) {
+      const rows = [...card.querySelectorAll('.component-row')];
+      return rows.map(row => {
+        const voice = row.querySelector('.voice-id').value.trim();
+        const weightRaw = row.querySelector('.weight').value.trim();
+        const weight = weightRaw === '' ? null : Number(weightRaw);
+        return { voice, weight };
+      }).filter(c => c.voice);
+    }
+
+    function updatePreviewText(card) {
+      const components = blendFromCard(card);
+      const text = components.map(c => c.weight != null ? `${c.voice}(${c.weight})` : c.voice).join('+');
+      card.querySelector('.blend-preview').textContent = text || '(empty)';
+    }
+
+    async function playPreview(name, card, btn) {
+      const components = blendFromCard(card);
+      const text = document.getElementById('sample-text').value;
+      const audioEl = card.querySelector('audio');
+      const statusEl = card.querySelector('.status');
+      statusEl.textContent = '';
+      statusEl.className = 'status';
+      btn.disabled = true;
+      btn.textContent = 'Generating...';
+      try {
+        const resp = await fetch('/api/preview', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ components, text })
+        });
+        if (!resp.ok) {
+          const err = await resp.json();
+          throw new Error(err.error || ('HTTP ' + resp.status));
+        }
+        const blob = await resp.blob();
+        audioEl.src = URL.createObjectURL(blob);
+        audioEl.hidden = false;
+        audioEl.play();
+      } catch (err) {
+        statusEl.textContent = String(err);
+        statusEl.className = 'status error';
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Preview';
+      }
+    }
+
+    async function saveVoice(name, card, btn) {
+      const components = blendFromCard(card);
+      const description = card.querySelector('.description').value;
+      const statusEl = card.querySelector('.status');
+      statusEl.textContent = '';
+      statusEl.className = 'status';
+      btn.disabled = true;
+      btn.textContent = 'Saving...';
+      try {
+        const resp = await fetch('/api/voices/' + encodeURIComponent(name), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ components, description })
+        });
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.error || ('HTTP ' + resp.status));
+        statusEl.textContent = data.recreated
+          ? `Saved and applied (container recreated -- internal name is now ${data.internal_name}).`
+          : `Saved and applied (restarted).`;
+        statusEl.className = 'status ok';
+      } catch (err) {
+        statusEl.textContent = String(err);
+        statusEl.className = 'status error';
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Save & Apply';
+      }
+    }
+
+    function renderVoice(name, info) {
+      const card = document.createElement('div');
+      card.className = 'voice';
+      card.innerHTML = `
+        <div class="voice-header">
+          <h2>${name}</h2>
+        </div>
+        <input type="text" class="description" value="${(info.description || '').replace(/"/g, '&quot;')}" placeholder="Description">
+        <div class="components"></div>
+        <div class="add-component"><button type="button" class="add">+ Add voice component</button></div>
+        <div class="blend-preview"></div>
+        <div class="actions">
+          <button type="button" class="preview-btn">Preview</button>
+          <button type="button" class="save-btn">Save &amp; Apply</button>
+        </div>
+        <audio controls hidden></audio>
+        <div class="status"></div>
+      `;
+      const componentsDiv = card.querySelector('.components');
+      (info.components || []).forEach(c => componentsDiv.appendChild(componentRow(c)));
+      if (!info.components || !info.components.length) {
+        componentsDiv.appendChild(componentRow({ voice: '', weight: null }));
+      }
+      card.querySelector('.add').onclick = () => {
+        componentsDiv.appendChild(componentRow({ voice: '', weight: null }));
+        updatePreviewText(card);
+      };
+      componentsDiv.addEventListener('input', () => updatePreviewText(card));
+      componentsDiv.addEventListener('click', () => updatePreviewText(card));
+      card.querySelector('.preview-btn').onclick = (e) => playPreview(name, card, e.target);
+      card.querySelector('.save-btn').onclick = (e) => saveVoice(name, card, e.target);
+      updatePreviewText(card);
+      return card;
+    }
+
+    async function init() {
+      await loadCatalog();
+      const resp = await fetch('/api/voices');
+      const voices = await resp.json();
+      const container = document.getElementById('voices');
+      container.innerHTML = '';
+      Object.entries(voices).forEach(([name, info]) => {
+        container.appendChild(renderVoice(name, info));
+      });
+    }
+
+    init();
+  </script>
+</body>
+</html>
